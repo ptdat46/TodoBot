@@ -33,7 +33,7 @@ Toàn bộ tri thức và dữ liệu được phân chia thành các file Markd
 
 ## 3. 🛡️ Nguyên Tắc Độc Quyền Ghi (Single Writer Principle)
 - **Agent là thực thể duy nhất** được phép ghi, sửa, cập nhật cấu trúc và dữ liệu vào các file trong `memory/*.md`.
-- **Background Worker (`worker.py`) là Read-Only đối với file Markdown**: Worker chỉ đọc các thẻ nhắc việc, kiểm tra với SQLite database cục bộ (`data/bot.sqlite`) và gửi email qua Resend. Worker **không bao giờ** sửa file Markdown, ngăn ngừa triệt để nguy cơ xung đột file (race conditions).
+- **Background Worker (`worker.py`) là Read-Only đối với file Markdown**: Worker chỉ đọc các thẻ nhắc việc, kiểm tra với SQLite database cục bộ (`data/bot.sqlite`) và gửi tin nhắn qua Telegram Bot API. Worker **không bao giờ** sửa file Markdown, ngăn ngừa triệt để nguy cơ xung đột file (race conditions).
 
 ---
 
@@ -47,7 +47,7 @@ Mỗi khi người dùng giao việc có hạn chót hoặc yêu cầu nhắc nh
 
 ### Các trường trong thẻ:
 1. `id`: Mã định danh duy nhất (ví dụ: `task-20261020-01`, `debt-pay-20261025-01`, `road-20261101-01`).
-2. `notify`: Thời điểm kích hoạt gửi email theo định dạng chuẩn `YYYY-MM-DD HH:MM` (múi giờ mặc định: Việt Nam `GMT+7`).
+2. `notify`: Thời điểm kích hoạt gửi tin nhắn Telegram theo định dạng chuẩn `YYYY-MM-DD HH:MM` (múi giờ mặc định: Việt Nam `GMT+7`).
    - Nếu người dùng nói: *"Nhắc anh trả nợ 5tr vào 9h sáng ngày 20/10"*, tính ra `notify: 2026-10-20 09:00`.
    - Nếu người dùng nói: *"Hạn chót nộp báo cáo lúc 17h chiều mai"*, tính ra giờ nhắc nhở trước hạn (ví dụ trước 2 tiếng: `15:00`).
 3. `type`: Phân loại thông báo (`task`, `debt`, `finance`, `roadmap`, `general`).
@@ -85,5 +85,5 @@ Khi ghi nhận trả nợ hoặc phát sinh khoản nợ mới:
 2. **Thực thi**: Đọc file tương ứng, áp dụng thay đổi đúng schema, tính toán lại các bảng tổng kết.
 3. **Phản hồi**:
    - Tóm tắt kết quả (3 - 5 dòng).
-   - Xác nhận ngày/giờ hẹn nhắc nhở qua Email (nếu có).
+   - Xác nhận ngày/giờ hẹn nhắc nhở qua Telegram (nếu có).
    - Báo cáo số dư / trạng thái tiến độ mới.

@@ -18,8 +18,8 @@ Hệ thống Trợ Lý Cá Nhân Toàn Năng vận hành trên **Google Antigrav
 - **🛡️ Nguyên Tắc Độc Quyền Ghi (Single Writer)**:
   - Agent là thực thể duy nhất có quyền ghi/sửa dữ liệu Markdown.
   - Worker là **Read-Only đối với file Markdown**, trạng thái đã gửi được lưu độc lập trong `data/bot.sqlite` -> Loại bỏ 100% nguy cơ xung đột dữ liệu hay lỗi format.
-- **📧 Thông Báo Qua Email Siêu Nhẹ (Resend API)**:
-  - Gửi email thông báo tự động đúng thời điểm hẹn bằng mẫu HTML hiện đại, phân loại rõ ràng (`[NHẮC VIỆC]`, `[TRẢ NỢ]`, `[ROADMAP]`).
+- **📱 Thông Báo Qua Telegram Bot**:
+  - Gửi tin nhắn đúng thời điểm hẹn qua Telegram Bot API, kèm loại sự kiện và thời gian nhắc.
 - **📱 Điều Khiển Từ Xa Bằng Điện Thoại (Antigravity Remote Control)**:
   - Kết nối bảo mật qua Google Account, sử dụng giao diện Chat Canvas đầy đủ trên trình duyệt điện thoại hoặc app PWA.
 
@@ -30,10 +30,10 @@ Hệ thống Trợ Lý Cá Nhân Toàn Năng vận hành trên **Google Antigrav
 ```
 TodoBot/
 ├── AGENTS.md             # Bộ não quy tắc, persona và hướng dẫn hành vi của Agent
-├── worker.py             # Script Python quét sự kiện và gửi email qua Resend
+├── worker.py             # Script Python quét sự kiện và gửi tin nhắn Telegram
 ├── test_worker.py        # Bộ unit test & kiểm tra parser
 ├── setup.sh              # Script 1-click triển khai tự động lên VPS Ubuntu 24.04
-├── .env.example          # Mẫu cấu hình API key và email nhận
+├── .env.example          # Mẫu cấu hình Telegram bot token và chat ID
 ├── .gitignore            # Loại trừ dữ liệu nhạy cảm, database và cache
 ├── README.md             # Hướng dẫn chi tiết
 │
@@ -69,25 +69,30 @@ sudo bash setup.sh
 3. Khởi tạo file `.env` và database SQLite `data/bot.sqlite`.
 4. Đăng ký tiến trình chạy `worker.py` mỗi phút vào Crontab hệ thống.
 
-### Bước 3: Điền cấu hình API Key
+### Bước 3: Cấu hình Telegram
+1. Nhắn `@BotFather` trên Telegram để tạo bot và lấy token.
+2. Mở chat với bot mới tạo và nhấn **Start** (đối với nhóm, thêm bot vào nhóm và gửi một tin nhắn).
+3. Truy cập `https://api.telegram.org/bot<TOKEN>/getUpdates` trong trình duyệt, thay `<TOKEN>` bằng token của bot. Lấy giá trị `message.chat.id` trong kết quả; chat ID nhóm thường là số âm. Không chia sẻ token hoặc URL chứa token.
+
 Mở file `.env`:
 ```bash
 nano .env
 ```
 Điền các giá trị:
 ```ini
-RESEND_API_KEY=re_xxxxxxxxx
-RESEND_FROM=onboarding@resend.dev   # Hoặc domain riêng nếu đã verify
-NOTIFY_TO_EMAIL=your_email@gmail.com
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
 TIMEZONE=Asia/Ho_Chi_Minh
 ```
 
-### Bước 4: Kiểm tra kết nối Email
-Chạy lệnh kiểm tra gửi thử email:
+### Bước 4: Kiểm tra kết nối Telegram
+Chạy lệnh gửi thử tin nhắn:
 ```bash
-python3 worker.py --test-email
+python3 worker.py --test-telegram
 ```
-Kiểm tra hộp thư đến của bạn để xác nhận email test đã tới!
+Kiểm tra chat Telegram để xác nhận đã nhận được tin nhắn. Nếu đã có file `.env` từ bản trước, thay các biến Resend bằng hai biến Telegram ở trên. Các sự kiện đã ghi trạng thái `sent` trong SQLite sẽ không gửi lại.
+
+Lần đầu worker quét lịch, nó lưu mốc kích hoạt trong SQLite: các lịch trước mốc này không gửi dồn. Lịch mới được gửi bù nếu trễ tối đa 24 giờ. Thẻ `repeat: weekly` nhắc mỗi tuần cùng thứ và giờ ghi trong `notify`; mỗi tuần chỉ gửi một lần, không gửi dồn các tuần đã lỡ. Không xóa `data/bot.sqlite` nếu muốn giữ mốc kích hoạt và lịch sử chống gửi trùng.
 
 ---
 
@@ -122,7 +127,7 @@ Kiểm tra hộp thư đến của bạn để xác nhận email test đã tới
 
 - **Mở rộng nhu cầu mới**:
   > *"Anh muốn theo dõi lịch uống thực phẩm chức năng và tập gym hàng ngày"*
-  > *(Agent sẽ tự tạo `memory/habits.md` theo đúng chuẩn, worker sẽ tự động nhận diện và gửi mail nhắc nhở khi đến giờ)*.
+  > *(Agent sẽ tự tạo `memory/habits.md` theo đúng chuẩn, worker sẽ tự động nhận diện và nhắn Telegram khi đến giờ)*.
 
 ---
 
@@ -131,7 +136,7 @@ Kiểm tra hộp thư đến của bạn để xác nhận email test đã tới
 ```bash
 python3 test_worker.py
 ```
-Quét thử dữ liệu hiện có mà không gửi mail:
+Quét thử dữ liệu hiện có mà không gửi tin nhắn:
 ```bash
 python3 worker.py --dry-run
 ```

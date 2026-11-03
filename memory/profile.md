@@ -8,7 +8,7 @@ Trí nhớ nền tảng về người dùng để Trợ lý Cá nhân hiểu rõ
 - **Họ và tên / Biệt danh**: Chủ nhân (hoặc cập nhật theo tên thật của bạn)
 - **Múi giờ**: `Asia/Ho_Chi_Minh` (GMT+7)
 - **Cách xưng hô**: Trợ lý xưng "Em" (hoặc "Trợ lý") và gọi người dùng là "Anh / Bạn / Sếp" (tùy chỉnh khi chat)
-- **Email nhận thông báo**: *(Được thiết lập trong file `.env`)*
+- **Telegram nhận thông báo**: *(Bot token và chat ID được thiết lập trong file `.env`)*
 
 ## 2. Thói Quen & Giờ Giấc Hoạt Động
 - **Thời gian bắt đầu ngày mới**: 07:30

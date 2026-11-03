@@ -7,7 +7,7 @@ Runs via Linux Cron (e.g., `* * * * * python3 /path/to/worker.py`).
 - 0 MB Idle RAM footprint (spins up, checks events, exits in < 1 second).
 - Zero external pip dependencies (Standard library: sqlite3, urllib, json, re, os).
 - Strictly Read-Only on Markdown memory files; tracks state in SQLite.
-- Sends responsive HTML emails via Resend API.
+- Sends Telegram messages via the Bot API.
 """
 
 import os
@@ -70,12 +70,43 @@ def init_db(db_path=DB_PATH):
             notify_at TEXT NOT NULL,
             sent_at TEXT NOT NULL,
             status TEXT NOT NULL,
-            resend_id TEXT,
+            telegram_message_id TEXT,
             error_message TEXT
         )
     """)
+    cursor.execute("PRAGMA table_info(notification_history)")
+    if "telegram_message_id" not in {row[1] for row in cursor.fetchall()}:
+        cursor.execute("ALTER TABLE notification_history ADD COLUMN telegram_message_id TEXT")
+    cursor.execute("CREATE TABLE IF NOT EXISTS worker_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     conn.commit()
     conn.close()
+
+
+def get_activated_at(now_local, db_path=DB_PATH):
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("INSERT OR IGNORE INTO worker_state (key, value) VALUES ('activated_at', ?)",
+                     (now_local.replace(second=0, microsecond=0).isoformat(),))
+        value = conn.execute("SELECT value FROM worker_state WHERE key = 'activated_at'").fetchone()[0]
+    return datetime.fromisoformat(value)
+
+
+def due_occurrence(event, now_local, activated_at):
+    event_dt = datetime.strptime(event["notify_at"], "%Y-%m-%d %H:%M").replace(tzinfo=LOCAL_TZ)
+    if event.get("repeat") == "weekly":
+        days_since = (now_local.weekday() - event_dt.weekday()) % 7
+        occurrence_dt = (now_local - timedelta(days=days_since)).replace(
+            hour=event_dt.hour, minute=event_dt.minute, second=0, microsecond=0)
+        if occurrence_dt > now_local:
+            occurrence_dt -= timedelta(days=7)
+        event_id = f"{event['id']}-{occurrence_dt:%Y%m%d}"
+        if occurrence_dt < event_dt:
+            return None
+    else:
+        occurrence_dt = event_dt
+        event_id = event["id"]
+    if occurrence_dt < activated_at or not timedelta(0) <= now_local - occurrence_dt <= timedelta(hours=24):
+        return None
+    return event_id, occurrence_dt
 
 
 def is_already_sent(event_id, db_path=DB_PATH):
@@ -88,16 +119,16 @@ def is_already_sent(event_id, db_path=DB_PATH):
     return row is not None
 
 
-def record_notification(event_id, title, source_file, event_type, notify_at, status, resend_id=None, error_msg=None, db_path=DB_PATH):
+def record_notification(event_id, title, source_file, event_type, notify_at, status, telegram_message_id=None, error_msg=None, db_path=DB_PATH):
     """Record or update notification status in SQLite."""
     now_str = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT OR REPLACE INTO notification_history
-        (id, title, source_file, event_type, notify_at, sent_at, status, resend_id, error_message)
+        (id, title, source_file, event_type, notify_at, sent_at, status, telegram_message_id, error_message)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (event_id, title, source_file, event_type, notify_at, now_str, status, resend_id, error_msg))
+    """, (event_id, title, source_file, event_type, notify_at, now_str, status, telegram_message_id, error_msg))
     conn.commit()
     conn.close()
 
@@ -113,7 +144,7 @@ def parse_memory_files(memory_dir=MEMORY_DIR):
     # Task title
     # HTML comment with id, notify date/time, optional type, optional priority
     tag_pattern = re.compile(
-        r'^(?:\s*-\s*\[([ xX])\]\s*)?(.*?)\s*<!--\s*id:\s*([a-zA-Z0-9_-]+)\s*\|\s*notify:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})(?:\s*\|\s*type:\s*([a-zA-Z0-9_-]+))?(?:\s*\|\s*priority:\s*([a-zA-Z0-9_-]+))?\s*-->',
+        r'^(?:\s*-\s*\[([ xX])\]\s*)?(.*?)\s*<!--\s*id:\s*([a-zA-Z0-9_-]+)\s*\|\s*notify:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})(?:\s*\|\s*type:\s*([a-zA-Z0-9_-]+))?(?:\s*\|\s*priority:\s*([a-zA-Z0-9_-]+))?(?:\s*\|\s*repeat:\s*(weekly))?\s*-->',
         re.MULTILINE
     )
 
@@ -142,6 +173,7 @@ def parse_memory_files(memory_dir=MEMORY_DIR):
                     "notify_at": notify_str,
                     "type": event_type,
                     "priority": priority,
+                    "repeat": match.group(7),
                     "source_file": filename
                 })
         except Exception as e:
@@ -150,123 +182,28 @@ def parse_memory_files(memory_dir=MEMORY_DIR):
     return events
 
 
-def build_email_html(event, now_str):
-    """Generate modern, responsive HTML email template."""
-    type_badge_color = {
-        "debt": "#dc2626",      # Red
-        "task": "#2563eb",      # Blue
-        "finance": "#059669",   # Green
-        "roadmap": "#7c3aed",   # Purple
-        "general": "#4b5563"    # Gray
-    }.get(event["type"].lower(), "#2563eb")
-
-    type_label = {
-        "debt": "ĐẾN HẠN TRẢ NỢ / TÀI CHÍNH",
-        "task": "NHẮC VIỆC CẦN LÀM",
-        "finance": "THÔNG BÁO TÀI CHÍNH",
-        "roadmap": "CỘT MỐC ROADMAP",
-        "general": "THÔNG BÁO TỪ TRỢ LÝ"
-    }.get(event["type"].lower(), event["type"].upper())
-
-    return f"""
-    <!DOCTYPE html>
-    <html lang="vi">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{event['title']}</title>
-    </head>
-    <body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f3f4f6; padding: 24px 12px;">
-            <tr>
-                <td align="center">
-                    <table width="100%" max-width="600" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-                        <!-- Header Bar -->
-                        <tr>
-                            <td style="background-color: #111827; padding: 20px 24px; text-align: left;">
-                                <span style="display: inline-block; padding: 4px 10px; background-color: {type_badge_color}; color: #ffffff; font-size: 11px; font-weight: 700; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase;">
-                                    {type_label}
-                                </span>
-                                <h1 style="color: #ffffff; font-size: 18px; margin: 12px 0 0 0; font-weight: 600;">
-                                    TodoBot Executive Assistant
-                                </h1>
-                            </td>
-                        </tr>
-
-                        <!-- Body Content -->
-                        <tr>
-                            <td style="padding: 24px;">
-                                <h2 style="font-size: 20px; font-weight: 700; color: #111827; margin: 0 0 16px 0; line-height: 1.4;">
-                                    {event['title']}
-                                </h2>
-
-                                <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f9fafb; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-                                    <tr>
-                                        <td style="font-size: 13px; color: #6b7280; padding: 4px 0;">⏰ Thời gian hẹn:</td>
-                                        <td style="font-size: 14px; font-weight: 600; color: #111827; text-align: right; padding: 4px 0;">{event['notify_at']} (GMT+7)</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="font-size: 13px; color: #6b7280; padding: 4px 0;">📁 Phân hệ lưu trữ:</td>
-                                        <td style="font-size: 14px; font-weight: 600; color: #111827; text-align: right; padding: 4px 0;"><code>memory/{event['source_file']}</code></td>
-                                    </tr>
-                                    <tr>
-                                        <td style="font-size: 13px; color: #6b7280; padding: 4px 0;">🏷️ Mã sự kiện:</td>
-                                        <td style="font-size: 14px; font-weight: 600; color: #4b5563; text-align: right; padding: 4px 0;">{event['id']}</td>
-                                    </tr>
-                                </table>
-
-                                <p style="font-size: 14px; line-height: 1.6; color: #4b5563; margin: 0 0 20px 0;">
-                                    Sự kiện trên đã đến hạn cần xử lý theo lịch đã định. Bạn có thể mở Antigravity Remote Control trên điện thoại để cập nhật tiến độ công việc hoặc báo cáo số dư tài chính.
-                                </p>
-
-                                <div style="text-align: center; margin: 28px 0 12px 0;">
-                                    <span style="display: inline-block; padding: 10px 20px; background-color: #111827; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 600; border-radius: 6px;">
-                                        ⚡ Tự động dispatch bởi TodoBot
-                                    </span>
-                                </div>
-                            </td>
-                        </tr>
-
-                        <!-- Footer -->
-                        <tr>
-                            <td style="background-color: #f9fafb; border-top: 1px solid #e5e7eb; padding: 16px 24px; text-align: center; font-size: 12px; color: #9ca3af;">
-                                Email gửi tự động lúc {now_str} (GMT+7) qua Resend API.<br>
-                                Chạy trên VPS Ubuntu Server 24.04 LTS (Zero Idle RAM Architecture).
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
-        </table>
-    </body>
-    </html>
-    """
+def build_telegram_message(event):
+    """Format a reminder as a plain-text Telegram message."""
+    return (f"[{event['type'].upper()}] {event['title']}\n"
+            f"Thời gian: {event['notify_at']} (GMT+7)\n"
+            f"Mã: {event['id']}")
 
 
-def send_resend_email(api_key, from_email, to_email, subject, html_content):
-    """Send email via Resend REST API using Python standard library."""
-    url = "https://api.resend.com/emails"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "User-Agent": "TodoBot-Assistant/1.0"
-    }
-
-    payload = {
-        "from": from_email,
-        "to": [to_email],
-        "subject": subject,
-        "html": html_content
-    }
+def send_telegram_message(bot_token, chat_id, text):
+    """Send a message through the Telegram Bot API."""
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
 
     data = json.dumps(payload).encode("utf-8")
-    req = request.Request(url, data=data, headers=headers, method="POST")
+    req = request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
 
     try:
         with request.urlopen(req, timeout=15) as response:
             res_body = response.read().decode("utf-8")
             res_json = json.loads(res_body)
-            return True, res_json.get("id"), None
+            if not res_json.get("ok"):
+                return False, None, res_json.get("description", "Telegram API error")
+            return True, str(res_json["result"]["message_id"]), None
     except error.HTTPError as e:
         err_msg = e.read().decode("utf-8")
         return False, None, f"HTTP {e.code}: {err_msg}"
@@ -279,37 +216,36 @@ def run_worker(dry_run=False, send_test=False):
     config = load_env()
     init_db()
 
-    api_key = config.get("RESEND_API_KEY", "")
-    from_email = config.get("RESEND_FROM", "onboarding@resend.dev")
-    to_email = config.get("NOTIFY_TO_EMAIL", "")
+    bot_token = config.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = config.get("TELEGRAM_CHAT_ID", "")
 
     now_local = datetime.now(LOCAL_TZ)
     now_str = now_local.strftime("%Y-%m-%d %H:%M")
     print(f"[{now_local.strftime('%Y-%m-%d %H:%M:%S')}] [TodoBot Worker] Bắt đầu quét sự kiện...")
 
-    # Test Email mode
     if send_test:
-        if not api_key or not to_email:
-            print("[-] Lỗi: Cần cấu hình RESEND_API_KEY và NOTIFY_TO_EMAIL trong file .env trước khi test email.")
+        if not bot_token or not chat_id:
+            print("[-] Lỗi: Cần cấu hình TELEGRAM_BOT_TOKEN và TELEGRAM_CHAT_ID trong file .env.")
             return
 
-        print(f"[i] Đang gửi email kiểm tra tới {to_email} từ {from_email}...")
+        print(f"[i] Đang gửi tin nhắn kiểm tra tới chat {chat_id}...")
         test_event = {
             "id": "test-connection-01",
-            "title": "Kiểm tra kết nối Resend API thành công!",
+            "title": "Kiểm tra kết nối Telegram",
             "notify_at": now_str,
             "type": "general",
             "priority": "high",
             "source_file": "tasks.md"
         }
-        html = build_email_html(test_event, now_str)
-        success, res_id, err = send_resend_email(api_key, from_email, to_email, "[TodoBot] ✅ Kiểm tra kết nối Email thành công", html)
+        success, message_id, err = send_telegram_message(bot_token, chat_id, build_telegram_message(test_event))
         if success:
-            print(f"[+] Thành công! Email ID: {res_id}")
+            print(f"[+] Thành công! Telegram message ID: {message_id}")
         else:
-            print(f"[-] Gửi email thất bại: {err}")
+            print(f"[-] Gửi tin nhắn thất bại: {err}")
         return
 
+    activated_at = (now_local.replace(second=0, microsecond=0)
+                    if dry_run else get_activated_at(now_local))
     # Normal polling mode
     events = parse_memory_files()
     print(f"[i] Đã tìm thấy {len(events)} thẻ sự kiện trong thư mục memory/")
@@ -317,46 +253,44 @@ def run_worker(dry_run=False, send_test=False):
     dispatched_count = 0
     for ev in events:
         try:
-            event_dt = datetime.strptime(ev["notify_at"], "%Y-%m-%d %H:%M").replace(tzinfo=LOCAL_TZ)
+            occurrence = due_occurrence(ev, now_local, activated_at)
         except ValueError:
             print(f"[-] Định dạng thời gian sai ở thẻ {ev['id']}: {ev['notify_at']}")
             continue
 
-        # Check if event has arrived
-        if event_dt <= now_local:
-            if is_already_sent(ev["id"]):
+        if occurrence:
+            event_id, occurrence_dt = occurrence
+            if is_already_sent(event_id):
                 continue
 
-            print(f"[!] Phát hiện sự kiện đến hạn: [{ev['id']}] {ev['title']} (Hẹn: {ev['notify_at']})")
+            print(f"[!] Phát hiện sự kiện đến hạn: [{event_id}] {ev['title']} (Hẹn: {occurrence_dt:%Y-%m-%d %H:%M})")
+            reminder = {**ev, "id": event_id, "notify_at": occurrence_dt.strftime("%Y-%m-%d %H:%M")}
 
             if dry_run:
-                print(f"    -> [DRY-RUN] Bỏ qua gửi email thực tế cho {ev['id']}")
+                print(f"    -> [DRY-RUN] Bỏ qua gửi Telegram thực tế cho {ev['id']}")
                 dispatched_count += 1
                 continue
 
-            if not api_key or not to_email:
-                print(f"    [-] Chưa cấu hình RESEND_API_KEY hoặc NOTIFY_TO_EMAIL trong .env, ghi nhận pending.")
+            if not bot_token or not chat_id:
+                print("    [-] Chưa cấu hình TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID trong .env.")
                 continue
 
-            subject = f"[{ev['type'].upper()}] {ev['title']}"
-            html = build_email_html(ev, now_str)
-
-            success, resend_id, err_msg = send_resend_email(api_key, from_email, to_email, subject, html)
+            success, message_id, err_msg = send_telegram_message(bot_token, chat_id, build_telegram_message(reminder))
             if success:
-                print(f"    [+] Đã gửi email thành công qua Resend (ID: {resend_id})")
-                record_notification(ev["id"], ev["title"], ev["source_file"], ev["type"], ev["notify_at"], "sent", resend_id=resend_id)
+                print(f"    [+] Đã gửi Telegram thành công (ID: {message_id})")
+                record_notification(event_id, ev["title"], ev["source_file"], ev["type"], reminder["notify_at"], "sent", telegram_message_id=message_id)
                 dispatched_count += 1
             else:
-                print(f"    [-] Lỗi gửi email: {err_msg}")
-                record_notification(ev["id"], ev["title"], ev["source_file"], ev["type"], ev["notify_at"], "failed", error_msg=err_msg)
+                print(f"    [-] Lỗi gửi Telegram: {err_msg}")
+                record_notification(event_id, ev["title"], ev["source_file"], ev["type"], reminder["notify_at"], "failed", error_msg=err_msg)
 
     print(f"[{now_local.strftime('%Y-%m-%d %H:%M:%S')}] Hoàn tất. Đã xử lý {dispatched_count} thông báo.\n")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TodoBot Notification Worker")
-    parser.add_argument("--dry-run", action="store_true", help="Quét và kiểm tra sự kiện mà không gửi email thực")
-    parser.add_argument("--test-email", action="store_true", help="Gửi email thử nghiệm để kiểm tra cấu hình Resend")
+    parser.add_argument("--dry-run", action="store_true", help="Quét sự kiện mà không gửi Telegram")
+    parser.add_argument("--test-telegram", action="store_true", help="Gửi tin nhắn thử để kiểm tra cấu hình Telegram")
     args = parser.parse_args()
 
-    run_worker(dry_run=args.dry_run, send_test=args.test_email)
+    run_worker(dry_run=args.dry_run, send_test=args.test_telegram)

@@ -60,28 +60,57 @@ else
 fi
 
 # 5. Khởi tạo thư mục dữ liệu và Database SQLite
-echo "[4/5] Khởi tạo cơ sở dữ liệu SQLite..."
+echo "[4/6] Khởi tạo cơ sở dữ liệu SQLite..."
 mkdir -p "$PROJECT_DIR/data"
-python3 -c "import worker; worker.init_db()"
+python3 -c "import bot; bot.init_chat_db()"
 echo "    [+] Database tại data/bot.sqlite đã sẵn sàng."
 
-# 6. Đăng ký Linux Cron Job mỗi phút (Zero Idle RAM)
-echo "[5/5] Cấu hình Linux Cron Job..."
+# 6. Đăng ký Linux Cron Job mỗi phút (Zero Idle RAM cho Notification Worker)
+echo "[5/6] Cấu hình Linux Cron Job..."
 CRON_JOB="* * * * * cd $PROJECT_DIR && /usr/bin/python3 $PROJECT_DIR/worker.py >> $PROJECT_DIR/data/worker.log 2>&1"
 
 # Thêm cron job nếu chưa tồn tại
 (crontab -l 2>/dev/null | grep -F -v "$PROJECT_DIR/worker.py" ; echo "$CRON_JOB") | crontab -
 echo "    [+] Đã đăng ký Cron Job quét mỗi phút: * * * * *"
 
+# 7. Đăng ký systemd service cho Telegram AI Agent (bot.py)
+echo "[6/6] Cấu hình dịch vụ nền TodoBot Telegram Agent..."
+if [ "$IS_ROOT" = true ]; then
+    SERVICE_FILE="/etc/systemd/system/todobot-agent.service"
+    cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=TodoBot Telegram AI Agent (2-Way Chat)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$PROJECT_DIR
+ExecStart=/usr/bin/python3 $PROJECT_DIR/bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:$PROJECT_DIR/data/bot.log
+StandardError=append:$PROJECT_DIR/data/bot.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable todobot-agent.service > /dev/null 2>&1 || true
+    echo "    [+] Đã tạo systemd service: todobot-agent.service (~15MB RAM)."
+else
+    echo "    [i] Bạn có thể chạy bot bằng lệnh: python3 bot.py"
+fi
+
 echo ""
 echo "=========================================================="
 echo "🎉 CÀI ĐẶT HOÀN TẤT!"
 echo "=========================================================="
 echo "Các bước tiếp theo:"
-echo "1. Mở file .env và điền thông tin:"
+echo "1. Mở file .env và điền TELEGRAM_BOT_TOKEN, AI_BASE_URL, AI_API_KEY:"
 echo "   nano .env"
 echo "2. Chạy thử kiểm tra kết nối Telegram:"
 echo "   python3 worker.py --test-telegram"
-echo "3. Bật Antigravity Remote Control để điều khiển từ điện thoại:"
-echo "   agy remote-control"
+echo "3. Khởi động Agent Chat 2 chiều trên Telegram:"
+echo "   sudo systemctl restart todobot-agent"
+echo "   (Hoặc chạy trực tiếp: python3 bot.py)"
 echo "=========================================================="

@@ -18,10 +18,11 @@ Hệ thống Trợ Lý Cá Nhân Toàn Năng vận hành trên **Google Antigrav
 - **🛡️ Nguyên Tắc Độc Quyền Ghi (Single Writer)**:
   - Agent là thực thể duy nhất có quyền ghi/sửa dữ liệu Markdown.
   - Worker là **Read-Only đối với file Markdown**, trạng thái đã gửi được lưu độc lập trong `data/bot.sqlite` -> Loại bỏ 100% nguy cơ xung đột dữ liệu hay lỗi format.
-- **📱 Thông Báo Qua Telegram Bot**:
-  - Gửi tin nhắn đúng thời điểm hẹn qua Telegram Bot API, kèm loại sự kiện và thời gian nhắc.
+- **📱 Thông Báo & Chat 2 Chiều Qua Telegram Bot**:
+  - `worker.py`: Gửi tin nhắn nhắc việc đúng thời điểm hẹn qua Telegram Bot API.
+  - `bot.py`: Tác nhân AI (Agent) trực tiếp trên Telegram sử dụng chuẩn **OpenAI-compatible API** (`gpt-6-luna`), có đầy đủ Tool Calling để tự đọc/sửa/tạo file trong `memory/*.md` mà không cần mở Antigravity CLI (~15MB RAM).
 - **📱 Điều Khiển Từ Xa Bằng Điện Thoại (Antigravity Remote Control)**:
-  - Kết nối bảo mật qua Google Account, sử dụng giao diện Chat Canvas đầy đủ trên trình duyệt điện thoại hoặc app PWA.
+  - Tuỳ chọn kết nối qua Google Account nếu muốn dùng giao diện Chat Canvas.
 
 ---
 
@@ -30,10 +31,11 @@ Hệ thống Trợ Lý Cá Nhân Toàn Năng vận hành trên **Google Antigrav
 ```
 TodoBot/
 ├── AGENTS.md             # Bộ não quy tắc, persona và hướng dẫn hành vi của Agent
-├── worker.py             # Script Python quét sự kiện và gửi tin nhắn Telegram
-├── test_worker.py        # Bộ unit test & kiểm tra parser
+├── bot.py                # Telegram AI Agent 2 chiều (OpenAI-compatible + Tool Calling)
+├── worker.py             # Script Python quét sự kiện và gửi tin nhắn nhắc việc Telegram
+├── test_worker.py        # Bộ unit test kiểm tra worker, parser và AI Agent tools
 ├── setup.sh              # Script 1-click triển khai tự động lên VPS Ubuntu 24.04
-├── .env.example          # Mẫu cấu hình Telegram bot token và chat ID
+├── .env.example          # Mẫu cấu hình Telegram bot token, chat ID và AI API
 ├── .gitignore            # Loại trừ dữ liệu nhạy cảm, database và cache
 ├── README.md             # Hướng dẫn chi tiết
 │
@@ -45,8 +47,9 @@ TodoBot/
 │   └── roadmap.md        # Lộ trình & mục tiêu dài hạn
 │
 └── data/                 # Dữ liệu cục bộ (Tự động sinh khi chạy)
-    ├── bot.sqlite        # Database SQLite theo dõi lịch sử gửi thông báo
-    └── worker.log        # Nhật ký chạy của cron worker
+    ├── bot.sqlite        # Database SQLite lưu trạng thái thông báo & lịch sử hội thoại
+    ├── worker.log        # Nhật ký chạy của cron worker
+    └── bot.log           # Nhật ký chạy của Telegram AI Agent
 ```
 
 ---
@@ -82,15 +85,30 @@ nano .env
 ```ini
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_CHAT_ID=your_chat_id_here
+AI_BASE_URL=https://your-openai-compatible-endpoint/v1
+AI_API_KEY=your_api_key_here
+AI_MODEL=gpt-6-luna
 TIMEZONE=Asia/Ho_Chi_Minh
 ```
 
-### Bước 4: Kiểm tra kết nối Telegram
-Chạy lệnh gửi thử tin nhắn:
+### Bước 4: Kiểm tra kết nối & Chạy Telegram AI Agent
+Chạy lệnh gửi thử tin nhắn thông báo:
 ```bash
 python3 worker.py --test-telegram
 ```
-Kiểm tra chat Telegram để xác nhận đã nhận được tin nhắn. Nếu đã có file `.env` từ bản trước, thay các biến Resend bằng hai biến Telegram ở trên. Các sự kiện đã ghi trạng thái `sent` trong SQLite sẽ không gửi lại.
+
+Khởi động **Telegram AI Agent** để chat 2 chiều trực tiếp trên Telegram:
+```bash
+# Chạy dưới dạng dịch vụ nền tự khởi động cùng VPS (khuyên dùng):
+sudo systemctl restart todobot-agent
+sudo systemctl status todobot-agent
+
+# Hoặc chạy trực tiếp trên terminal:
+python3 bot.py
+
+# Hoặc test nhanh 1 câu lệnh với Agent ngay trên terminal:
+python3 bot.py --prompt "Hôm nay anh đổ xăng 80k, cập nhật giúp anh"
+```
 
 Lần đầu worker quét lịch, nó lưu mốc kích hoạt trong SQLite: các lịch trước mốc này không gửi dồn. Lịch mới được gửi bù nếu trễ tối đa 24 giờ. Thẻ `repeat: weekly` nhắc mỗi tuần cùng thứ và giờ ghi trong `notify`; mỗi tuần chỉ gửi một lần, không gửi dồn các tuần đã lỡ. Không xóa `data/bot.sqlite` nếu muốn giữ mốc kích hoạt và lịch sử chống gửi trùng.
 

@@ -16,6 +16,11 @@ from urllib.error import HTTPError
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 
+# Ensure project directory is on sys.path (supports embedded Python on Windows)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
 # Import functions from worker
 import worker
 
@@ -146,6 +151,84 @@ class TestTodoBotWorker(unittest.TestCase):
             self.assertFalse(success)
             self.assertIsNone(message_id)
             self.assertIn("403", error_msg)
+
+    def test_bot_memory_tools_and_agent_loop(self):
+        import bot
+
+        bot.init_chat_db(self.db_path)
+
+        # 1. Write and read a memory file via tools
+        write_res = json.loads(bot.tool_write_memory_file("tasks.md", "# Tasks\n- [ ] Việc A\n", memory_dir=self.memory_dir))
+        self.assertEqual(write_res["status"], "success")
+
+        edit_res = json.loads(bot.tool_edit_memory_file(
+            "tasks.md",
+            "- [ ] Việc A",
+            "- [x] Việc A\n- [ ] Việc B <!-- id: task-20261104-01 | notify: 2026-11-04 09:00 | type: task -->",
+            memory_dir=self.memory_dir,
+        ))
+        self.assertEqual(edit_res["status"], "success")
+
+        read_res = json.loads(bot.tool_read_memory_file("tasks.md", memory_dir=self.memory_dir))
+        self.assertIn("task-20261104-01", read_res["content"])
+
+        # Path traversal protection
+        bad_res = json.loads(bot.tool_read_memory_file("../.env", memory_dir=self.memory_dir))
+        self.assertIn(".env.md", bad_res.get("error", ""))
+
+        # 2. Simulate multi-step OpenAI tool-calling loop
+        fake_responses = [
+            {
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_memory_file",
+                                "arguments": json.dumps({"filename": "tasks.md"}),
+                            },
+                        }],
+                    }
+                }]
+            },
+            {
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "Em đã kiểm tra danh sách công việc của anh!",
+                    }
+                }]
+            },
+        ]
+
+        config = {
+            "AI_BASE_URL": "https://api.example.com/v1",
+            "AI_API_KEY": "sk-test",
+            "AI_MODEL": "gpt-6-luna",
+        }
+        with patch.object(bot, "call_openai_compatible", side_effect=fake_responses) as mock_ai:
+            reply = bot.run_agent_turn("Xem giúp anh việc cần làm", "9163961090", config, memory_dir=self.memory_dir, db_path=self.db_path)
+            self.assertEqual(reply, "Em đã kiểm tra danh sách công việc của anh!")
+            self.assertEqual(mock_ai.call_count, 2)
+
+        history = bot.get_chat_history("9163961090", db_path=self.db_path)
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["role"], "user")
+        self.assertEqual(history[1]["role"], "assistant")
+
+        # 3. Verify 20-message Sliding Window & /clear command
+        for i in range(25):
+            bot.add_chat_message("9163961090", "user", f"msg-{i}", db_path=self.db_path)
+        windowed = bot.get_chat_history("9163961090", db_path=self.db_path)
+        self.assertEqual(len(windowed), bot.MAX_HISTORY_MESSAGES)
+        self.assertEqual(windowed[-1]["content"], "msg-24")
+        self.assertEqual(windowed[0]["content"], "msg-5")
+
+        bot.clear_chat_history("9163961090", db_path=self.db_path)
+        self.assertEqual(bot.get_chat_history("9163961090", db_path=self.db_path), [])
 
 
 if __name__ == "__main__":

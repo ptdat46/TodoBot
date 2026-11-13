@@ -121,18 +121,6 @@ def unsign_cookie(value, secret):
 class AppHandler(BaseHTTPRequestHandler):
     server_version = "TodoBotWeb/1.0"
 
-    def rate_allowed(self):
-        now_value = time.time()
-        address = self.client_address[0]
-        entries = self.server.rate_limits.setdefault(address, [])
-        entries[:] = [stamp for stamp in entries if now_value - stamp < 60]
-        limit = int(self.settings.get("RATE_LIMIT", 60))
-        if len(entries) >= limit:
-            self.send_json(429, {"error": "rate limit exceeded"})
-            return False
-        entries.append(now_value)
-        return True
-
     def log_message(self, fmt, *args):
         # Keep request logs free of cookies, bodies, and provider credentials.
         if self.path.startswith("/api/"):
@@ -193,8 +181,6 @@ class AppHandler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
-        if not self.rate_allowed():
-            return
         parsed = urlparse(self.path)
         path = parsed.path
         try:
@@ -243,8 +229,6 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "request failed"})
 
     def do_POST(self):
-        if not self.rate_allowed():
-            return
         path = urlparse(self.path).path
         try:
             if path == "/api/login":
@@ -315,8 +299,6 @@ class AppHandler(BaseHTTPRequestHandler):
             self.record_error(type(exc).__name__); self.send_json(400, {"error": "request failed"})
 
     def do_DELETE(self):
-        if not self.rate_allowed():
-            return
         path = urlparse(self.path).path
         session = self.require_auth()
         if not session or not self.require_csrf(session): return

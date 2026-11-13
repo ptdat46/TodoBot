@@ -7,7 +7,7 @@
   <meta name="description" content="TodoBot private assistant chat">
   <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=20261113-1831">
   <title>TodoBot</title>
 </head>
 <body>
@@ -66,7 +66,9 @@
         <div id="composer-area" class="composer-area">
           <div id="attachment-list" class="attachment-list" aria-label="Tệp đính kèm"></div>
           <form id="composer-form" class="composer">
-            <label class="attach-button icon-button" for="file-input" aria-label="Đính kèm tệp">⌕</label>
+            <label class="attach-button icon-button" for="file-input" aria-label="Đính kèm tệp">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 17 6.9-6.9a3 3 0 0 0-4.2-4.2l-7.1 7.1a5 5 0 0 0 7.1 7.1l7.1-7.1a7 7 0 0 0-9.9-9.9L2.7 12.3"/></svg>
+            </label>
             <input id="file-input" type="file" multiple accept="*/*" capture="environment" hidden>
             <textarea id="message-input" rows="1" placeholder="Nhắn tin cho TodoBot…" aria-label="Nội dung tin nhắn" maxlength="20000"></textarea>
             <button id="send-button" class="send-button" type="submit" aria-label="Gửi tin nhắn">↑</button>
@@ -86,6 +88,6 @@
       <form method="dialog"><h2 id="confirm-title">Xác nhận</h2><p id="confirm-message"></p><div class="dialog-actions"><button value="cancel" class="secondary-button">Huỷ</button><button id="confirm-action" value="confirm" class="danger-button">Xác nhận</button></div></form>
     </dialog>
   </div>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=20261113-1831" defer></script>
 </body>
 </html>

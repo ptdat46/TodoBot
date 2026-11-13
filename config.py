@@ -12,6 +12,7 @@ DEFAULTS = {
     "WEB_DIR": os.path.join(BASE_DIR, "web"),
     "UPLOAD_DIR": os.path.join(BASE_DIR, "uploads"),
     "AI_MODEL": "gpt-6-luna",
+    "AI_FALLBACK_MODEL": "gpt-6-luna",
     "MAX_UPLOAD_BYTES": str(5 * 1024 * 1024),
     "MAX_BODY_BYTES": str(6 * 1024 * 1024),
     "RATE_LIMIT": "60",

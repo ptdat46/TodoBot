@@ -32,15 +32,21 @@ class AgentCore:
         key = self.settings.get("AI_API_KEY") or self.settings.get("OPENAI_API_KEY", "")
         if not base or not key:
             return {"choices": [{"message": {"role": "assistant", "content": "AI provider chưa được cấu hình."}}]}
-        payload = {"model": self.settings.get("AI_MODEL", "gpt-6-luna"), "messages": messages, "tools": TOOLS_SCHEMA, "tool_choice": "auto"}
-        req = request.Request(build_chat_completions_url(base), data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + key}, method="POST")
-        try:
-            with request.urlopen(req, timeout=60) as response:
-                return json.loads(response.read().decode())
-        except error.HTTPError as exc:
-            raise RuntimeError("AI provider request failed (HTTP %s)" % exc.code)
-        except Exception as exc:
-            raise RuntimeError("AI provider request failed: %s" % type(exc).__name__)
+        primary = self.settings.get("AI_MODEL", "gpt-6-luna")
+        fallback = self.settings.get("AI_FALLBACK_MODEL", "").strip()
+        models = [primary] + ([fallback] if fallback and fallback != primary else [])
+        failures = []
+        for model in models:
+            payload = {"model": model, "messages": messages, "tools": TOOLS_SCHEMA, "tool_choice": "auto"}
+            req = request.Request(build_chat_completions_url(base), data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "Authorization": "Bearer " + key}, method="POST")
+            try:
+                with request.urlopen(req, timeout=60) as response:
+                    return json.loads(response.read().decode())
+            except error.HTTPError as exc:
+                failures.append("HTTP %s" % exc.code)
+            except Exception as exc:
+                failures.append(type(exc).__name__)
+        raise RuntimeError("AI provider request failed: %s" % ", ".join(failures))
 
     def stream(self, conversation_id, text):
         history = self.conversations.messages(conversation_id, 20)

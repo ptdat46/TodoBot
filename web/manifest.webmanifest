@@ -1,0 +1,14 @@
+{
+  "name": "TodoBot Private Assistant",
+  "short_name": "TodoBot",
+  "description": "Private mobile-first chat for TodoBot",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f9fc",
+  "theme_color": "#102a43",
+  "lang": "vi",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

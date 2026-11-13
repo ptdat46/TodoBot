@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#102a43">
+  <meta name="description" content="TodoBot private assistant chat">
+  <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+  <title>TodoBot</title>
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="topbar">
+      <button id="menu-button" class="icon-button" type="button" aria-label="Mở danh sách cuộc trò chuyện" aria-controls="sidebar" aria-expanded="false">☰</button>
+      <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><span>TodoBot</span></div>
+      <div class="topbar-actions">
+        <button id="new-chat-button" class="icon-button" type="button" aria-label="Cuộc trò chuyện mới">＋</button>
+        <button id="more-button" class="icon-button" type="button" aria-label="Mở thêm tuỳ chọn">⋮</button>
+      </div>
+    </header>
+
+    <div id="sidebar-backdrop" class="backdrop" hidden></div>
+    <aside id="sidebar" class="sidebar" aria-label="Cuộc trò chuyện" aria-hidden="true">
+      <div class="sidebar-header">
+        <div><p class="eyebrow">Không gian riêng tư</p><h2>Cuộc trò chuyện</h2></div>
+        <button id="close-sidebar" class="icon-button" type="button" aria-label="Đóng danh sách">×</button>
+      </div>
+      <button id="sidebar-new-chat" class="primary-button full-width" type="button">＋ Cuộc trò chuyện mới</button>
+      <label class="search-field" for="conversation-search"><span aria-hidden="true">⌕</span><input id="conversation-search" type="search" placeholder="Tìm cuộc trò chuyện" autocomplete="off"></label>
+      <div id="conversation-list" class="conversation-list" role="list"></div>
+      <div class="sidebar-footer"><button id="open-settings" class="text-button" type="button">⚙ Cài đặt & dữ liệu</button></div>
+    </aside>
+
+    <main class="main-content">
+      <section id="login-view" class="login-view" aria-labelledby="login-title" hidden>
+        <div class="login-card">
+          <div class="welcome-icon" aria-hidden="true">✦</div>
+          <p class="eyebrow">Trợ lý cá nhân</p>
+          <h1 id="login-title">Chào mừng trở lại</h1>
+          <p class="muted">Đăng nhập để tiếp tục cuộc trò chuyện riêng tư của bạn.</p>
+          <form id="login-form" class="stack-form">
+            <label for="password">Mật khẩu</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button class="primary-button" type="submit">Đăng nhập</button>
+            <p id="login-error" class="form-error" role="alert" hidden></p>
+          </form>
+        </div>
+      </section>
+
+      <section id="chat-view" class="chat-view" aria-label="Trò chuyện" hidden>
+        <div id="message-list" class="message-list" aria-live="polite" aria-relevant="additions"></div>
+        <div id="empty-chat" class="empty-state">
+          <div class="empty-icon" aria-hidden="true">✦</div>
+          <h1>Bạn muốn bắt đầu từ đâu?</h1>
+          <p class="muted">Hỏi về công việc, tài chính, kế hoạch hoặc bất cứ điều gì bạn cần ghi nhớ.</p>
+          <div class="suggestion-grid">
+            <button class="suggestion" type="button" data-prompt="Tóm tắt các việc cần làm hôm nay">Tóm tắt việc hôm nay</button>
+            <button class="suggestion" type="button" data-prompt="Cập nhật giúp anh một khoản chi tiêu mới">Ghi nhận chi tiêu</button>
+            <button class="suggestion" type="button" data-prompt="Có thông báo nào sắp đến hạn không?">Kiểm tra nhắc việc</button>
+            <button class="suggestion" type="button" data-prompt="Giúp anh lập kế hoạch cho tuần này">Lập kế hoạch tuần</button>
+          </div>
+        </div>
+        <div id="stream-status" class="stream-status" hidden></div>
+        <div id="composer-area" class="composer-area">
+          <div id="attachment-list" class="attachment-list" aria-label="Tệp đính kèm"></div>
+          <form id="composer-form" class="composer">
+            <label class="attach-button icon-button" for="file-input" aria-label="Đính kèm tệp">⌕</label>
+            <input id="file-input" type="file" multiple accept="*/*" capture="environment" hidden>
+            <textarea id="message-input" rows="1" placeholder="Nhắn tin cho TodoBot…" aria-label="Nội dung tin nhắn" maxlength="20000"></textarea>
+            <button id="send-button" class="send-button" type="submit" aria-label="Gửi tin nhắn">↑</button>
+          </form>
+          <p class="composer-hint">TodoBot có thể hỗ trợ bạn quản lý công việc và ghi nhớ dài hạn.</p>
+        </div>
+      </section>
+
+      <section id="settings-view" class="settings-view" aria-labelledby="settings-title" hidden>
+        <div class="page-heading"><button id="settings-back" class="icon-button" type="button" aria-label="Quay lại">‹</button><div><p class="eyebrow">Quản lý</p><h1 id="settings-title">Cài đặt & dữ liệu</h1></div></div>
+        <div id="settings-content" class="settings-content"></div>
+      </section>
+    </main>
+
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <dialog id="confirm-dialog" class="confirm-dialog">
+      <form method="dialog"><h2 id="confirm-title">Xác nhận</h2><p id="confirm-message"></p><div class="dialog-actions"><button value="cancel" class="secondary-button">Huỷ</button><button id="confirm-action" value="confirm" class="danger-button">Xác nhận</button></div></form>
+    </dialog>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

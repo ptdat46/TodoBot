@@ -1,20 +1,31 @@
-# Environment variables
+﻿# Environment variables
 .env
+.env.*
+!.env.example
 
-# SQLite Database & Data files
-data/*.sqlite
-data/*.sqlite-journal
-data/*.sqlite-wal
-data/*.sqlite-shm
+# Runtime and private data
+/data/
+/uploads/
+/logs/
+/memory/
 
-# Python cache
+# Python environments and cache
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 
-# Logs
-*.log
+# Android/Gradle generated files and local secrets
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/**/google-services.json
+android/**/*.keystore
+android/**/*.jks
 
-# OS / Editor files
+# Logs and OS/editor files
+*.log
 .DS_Store
 Thumbs.db
 .vscode/

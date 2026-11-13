@@ -1,0 +1,2 @@
+# The backend uses only Python standard library modules.
+# Optional deployment integrations may install FastAPI/uvicorn separately.
